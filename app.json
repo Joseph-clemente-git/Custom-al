@@ -1,0 +1,33 @@
+{
+  "id": "f551e989-28b0-462a-9436-304b5450bd4a",
+  "name": "GMPI",
+  "publisher": "BC Developer",
+  "version": "26.1.0.29",
+  "runtime": "16.0",
+  "target": "Cloud",
+  "application": "28.0.0.0",
+  "platform": "28.0.0.0",
+  "resourceExposurePolicy": {
+    "allowDebugging": true,
+    "allowDownloadingSource": true,
+    "includeSourceInSymbolFile": true,
+    "applyToDevExtension": false
+  },
+  "features": [
+    "NoImplicitWith"
+  ],
+  "dependencies": [
+    {
+      "id": "d5ef5a64-f75d-4a32-a83d-22431ca276f9",
+      "name": "Philippine Localization",
+      "publisher": "365Labs Inc.",
+      "version": "26.1.0.19"
+    }
+  ],
+  "idRanges": [
+    {
+      "from": 70100,
+      "to": 70149
+    }
+  ]
+}
