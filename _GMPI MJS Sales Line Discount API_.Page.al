@@ -98,11 +98,59 @@ page 70144 "MJS Sales Line Discount API"
                 {
                     Caption = 'Line Discount Percent';
                 }
+                // GMPI's Deals / Wholesale Discount 1-6, which GMPI copies onto
+                // the Sales Line from the best discount row. Resolved by name
+                // (GMPI is a separate app); blank/0 when GMPI is not installed
+                // so pricing reads keep working.
+                field(deals; Deals)
+                {
+                    Caption = 'Deals';
+                }
+                field(wholesaleDiscount1; WholesaleDiscount[1])
+                {
+                    Caption = 'Wholesale Discount 1';
+                }
+                field(wholesaleDiscount2; WholesaleDiscount[2])
+                {
+                    Caption = 'Wholesale Discount 2';
+                }
+                field(wholesaleDiscount3; WholesaleDiscount[3])
+                {
+                    Caption = 'Wholesale Discount 3';
+                }
+                field(wholesaleDiscount4; WholesaleDiscount[4])
+                {
+                    Caption = 'Wholesale Discount 4';
+                }
+                field(wholesaleDiscount5; WholesaleDiscount[5])
+                {
+                    Caption = 'Wholesale Discount 5';
+                }
+                field(wholesaleDiscount6; WholesaleDiscount[6])
+                {
+                    Caption = 'Wholesale Discount 6';
+                }
             }
         }
     }
-    trigger OnAfterGetRecord()
+    trigger OnOpenPage()
+    var
+        i: Integer;
     begin
+        // Resolved once per request rather than once per returned row.
+        DealsFieldNo:=GetDiscountFieldNo('GMPI Deals');
+        for i:=1 to 6 do WholesaleDiscountFieldNo[i]:=GetDiscountFieldNo(StrSubstNo('GMPI Wholesale Discount %1', i));
+    end;
+    trigger OnAfterGetRecord()
+    var
+        DiscountRef: RecordRef;
+        i: Integer;
+    begin
+        Clear(Deals);
+        Clear(WholesaleDiscount);
+        DiscountRef.GetTable(Rec);
+        if DealsFieldNo <> 0 then Deals:=DiscountRef.Field(DealsFieldNo).Value;
+        for i:=1 to 6 do if WholesaleDiscountFieldNo[i] <> 0 then WholesaleDiscount[i]:=DiscountRef.Field(WholesaleDiscountFieldNo[i]).Value;
         Clear(EmptyCode);
         Clear(EmptyLineNo);
         Clear(EmptyUnitPrice);
@@ -110,7 +158,21 @@ page 70144 "MJS Sales Line Discount API"
         SalePriceType:='Sale';
         DiscountAmountType:='Discount';
     end;
-    var EmptyCode: Code[20];
+    local procedure GetDiscountFieldNo(FieldName: Text[30]): Integer
+    var
+        DiscountField: Record Field;
+    begin
+        DiscountField.SetRange(TableNo, Database::"Sales Line Discount");
+        DiscountField.SetRange(FieldName, FieldName);
+        DiscountField.SetRange(Enabled, true);
+        if DiscountField.FindFirst() then exit(DiscountField."No.");
+        exit(0);
+    end;
+    var Deals: Text[20];
+    WholesaleDiscount: array[6] of Decimal;
+    DealsFieldNo: Integer;
+    WholesaleDiscountFieldNo: array[6] of Integer;
+    EmptyCode: Code[20];
     EmptyLineNo: Integer;
     EmptyUnitPrice: Decimal;
     ActiveStatus: Text[30];

@@ -12,7 +12,7 @@ page 70119 "MJS Sales Order Campaign API"
     EntityName = 'salesOrderCampaign';
     EntitySetName = 'salesOrderCampaigns';
     SourceTable = "Sales Header";
-    SourceTableView = where("Document Type"=const(Order));
+    SourceTableView = where("Document Type" = const(Order));
     DelayedInsert = true;
     ODataKeyFields = SystemId;
     Editable = false;
@@ -23,10 +23,10 @@ page 70119 "MJS Sales Order Campaign API"
     // Release Sales Document reads this localization setup while the bound
     // action below re-releases an existing order. Grant the API page indirect
     // read access so service principals do not need a direct table assignment.
-    Permissions = tabledata "Item Variant"=R,
-        tabledata "Sales Line"=RIM,
-        tabledata "Sales Comment Line"=RIMD,
-        tabledata "WHT Posting Setup"=R;
+    Permissions = tabledata "Item Variant" = R,
+        tabledata "Sales Line" = RIM,
+        tabledata "Sales Comment Line" = RIMD,
+        tabledata "WHT Posting Setup" = R;
 
     layout
     {
@@ -74,7 +74,8 @@ page 70119 "MJS Sales Order Campaign API"
             }
         }
     }
-    var LastLineNo: Integer;
+    var
+        LastLineNo: Integer;
     /// <summary>
     /// Applies the selected campaign to an open sales order before its lines
     /// are created. Validate runs BC's standard campaign validation logic.
@@ -120,23 +121,23 @@ page 70119 "MJS Sales Order Campaign API"
         ResponsibilityCenterRecord: Record "Responsibility Center";
         WasReleased: Boolean;
     begin
-        WasReleased:=Rec.Status = Rec.Status::Released;
+        WasReleased := Rec.Status = Rec.Status::Released;
         if WasReleased then ReleaseSalesDocument.Reopen(Rec);
         // The order's Location Code is also the Responsibility Center Code.
         // Create the master record on first use so older companies without a
         // matching Responsibility Center can still release the sales order.
         ResponsibilityCenterRecord.LockTable();
-        if not ResponsibilityCenterRecord.Get(responsibilityCenter)then begin
+        if not ResponsibilityCenterRecord.Get(responsibilityCenter) then begin
             ResponsibilityCenterRecord.Init();
-            ResponsibilityCenterRecord.Code:=responsibilityCenter;
-            ResponsibilityCenterRecord.Name:=responsibilityCenter;
+            ResponsibilityCenterRecord.Code := responsibilityCenter;
+            ResponsibilityCenterRecord.Name := responsibilityCenter;
             ResponsibilityCenterRecord.Insert(true);
         end;
         Rec.Validate("Responsibility Center", responsibilityCenter);
         // Sales lines are posted with their own explicit locations. Assign the
         // same code to the header after Responsibility Center validation so
         // that validation cannot replace it with a center default.
-        Rec."Location Code":=responsibilityCenter;
+        Rec."Location Code" := responsibilityCenter;
         Rec.Modify(true);
         if WasReleased then begin
             ReleaseSalesDocument.PerformManualRelease(Rec);
@@ -165,7 +166,7 @@ page 70119 "MJS Sales Order Campaign API"
         ReleaseSalesDocument: Codeunit "Release Sales Document";
         WasReleased: Boolean;
     begin
-        WasReleased:=Rec.Status = Rec.Status::Released;
+        WasReleased := Rec.Status = Rec.Status::Released;
         if WasReleased then ReleaseSalesDocument.Reopen(Rec);
         Rec.Validate("Shipment Method Code", shipmentMethodCode);
         Rec.Modify(true);
@@ -239,6 +240,48 @@ page 70119 "MJS Sales Order Campaign API"
         actionContext.SetResultCode(WebServiceActionResultCode::Updated);
     end;
     /// <summary>
+    /// Sets a single sales line's Deals (buy+free quantity such as 8+1) — the
+    /// GMPI Sales Line field shown as "Deals" on the Sales Order subform —
+    /// when the user changed it from the deal GMPI copied from the discount
+    /// setup. Validated exactly as typing it in the client: GMPI checks the
+    /// format and recomputes Line Discount % from the deal and the line's
+    /// Wholesale Discount 1-6. GMPI is a separate app, so the field is
+    /// resolved by name, and this fails rather than dropping the deal when it
+    /// is missing. lineNo is the Sales Line."Line No." from addItemLine.
+    /// </summary>
+    [ServiceEnabled]
+    procedure setLineDeals(var actionContext: WebServiceActionContext; lineNo: Integer; deals: Text[30])
+    var
+        SalesLine: Record "Sales Line";
+        SalesLineRef: RecordRef;
+        DealsRef: FieldRef;
+    begin
+        Rec.TestField(Status, Rec.Status::Open);
+        SalesLine.Get(Rec."Document Type", Rec."No.", lineNo);
+        SalesLineRef.GetTable(SalesLine);
+        DealsRef := SalesLineRef.Field(GetSalesLineDealsFieldNo());
+        if StrLen(deals) > DealsRef.Length then Error(DealsTooLongErr, deals, DealsRef.Length);
+        DealsRef.Validate(deals);
+        SalesLineRef.Modify(true);
+        actionContext.SetObjectType(ObjectType::Page);
+        actionContext.SetObjectId(Page::"MJS Sales Order Campaign API");
+        actionContext.AddEntityKey(Rec.FieldNo(SystemId), Rec.SystemId);
+        actionContext.SetResultCode(WebServiceActionResultCode::Updated);
+    end;
+    /// <summary>
+    /// Finds GMPI's Sales Line "GMPI Deals" field (77100, Text[20]) by name.
+    /// </summary>
+    local procedure GetSalesLineDealsFieldNo(): Integer
+    var
+        SalesLineField: Record Field;
+    begin
+        SalesLineField.SetRange(TableNo, Database::"Sales Line");
+        SalesLineField.SetRange(FieldName, 'GMPI Deals');
+        SalesLineField.SetRange(Enabled, true);
+        if not SalesLineField.FindFirst() then Error(MissingDealsFieldErr);
+        exit(SalesLineField."No.");
+    end;
+    /// <summary>
     /// Corrects a single sales line's Location Code after the order already
     /// has lines (e.g. re-syncing a legacy order at final approval). Reopens
     /// and re-releases around the change when the order is Released, using
@@ -253,7 +296,7 @@ page 70119 "MJS Sales Order Campaign API"
         WasReleased: Boolean;
     begin
         SalesLine.Get(Rec."Document Type", Rec."No.", lineNo);
-        WasReleased:=Rec.Status = Rec.Status::Released;
+        WasReleased := Rec.Status = Rec.Status::Released;
         if WasReleased then ReleaseSalesDocument.Reopen(Rec);
         SalesLine.Validate("Location Code", locationCode);
         SalesLine.Modify(true);
@@ -282,19 +325,19 @@ page 70119 "MJS Sales Order Campaign API"
         SalesCommentLine.SetRange("No.", Rec."No.");
         SalesCommentLine.SetRange("Document Line No.", DocumentLineNo);
         SalesCommentLine.DeleteAll();
-        NextLineNo:=10000;
-        RemainingStart:=1;
-        while RemainingStart <= StrLen(NewText)do begin
+        NextLineNo := 10000;
+        RemainingStart := 1;
+        while RemainingStart <= StrLen(NewText) do begin
             SalesCommentLine.Init();
-            SalesCommentLine."Document Type":=Rec."Document Type";
-            SalesCommentLine."No.":=Rec."No.";
-            SalesCommentLine."Document Line No.":=DocumentLineNo;
-            SalesCommentLine."Line No.":=NextLineNo;
-            SalesCommentLine.Date:=Today;
-            SalesCommentLine.Comment:=CopyStr(NewText, RemainingStart, 80);
+            SalesCommentLine."Document Type" := Rec."Document Type";
+            SalesCommentLine."No." := Rec."No.";
+            SalesCommentLine."Document Line No." := DocumentLineNo;
+            SalesCommentLine."Line No." := NextLineNo;
+            SalesCommentLine.Date := Today;
+            SalesCommentLine.Comment := CopyStr(NewText, RemainingStart, 80);
             SalesCommentLine.Insert(true);
-            RemainingStart+=80;
-            NextLineNo+=10000;
+            RemainingStart += 80;
+            NextLineNo += 10000;
         end;
     end;
     /// <summary>
@@ -318,6 +361,7 @@ page 70119 "MJS Sales Order Campaign API"
     begin
         AddItemLineInternal(actionContext, itemNumber, variantCode, quantity, unitPrice, applyUnitPrice, discountPercent, locationCode);
     end;
+
     local procedure AddItemLineInternal(var actionContext: WebServiceActionContext; itemNumber: Code[20]; variantCode: Code[10]; quantity: Decimal; unitPrice: Decimal; applyUnitPrice: Boolean; discountPercent: Decimal; locationCode: Code[10])
     var
         SalesLine: Record "Sales Line";
@@ -327,9 +371,10 @@ page 70119 "MJS Sales Order Campaign API"
         if quantity <= 0 then Error('Quantity must be greater than zero.');
         SalesLine.SetRange("Document Type", Rec."Document Type");
         SalesLine.SetRange("Document No.", Rec."No.");
-        if SalesLine.FindLast()then NextLineNo:=SalesLine."Line No." + 10000
+        if SalesLine.FindLast() then
+            NextLineNo := SalesLine."Line No." + 10000
         else
-            NextLineNo:=10000;
+            NextLineNo := 10000;
         SalesLine.Init();
         SalesLine.Validate("Document Type", Rec."Document Type");
         SalesLine.Validate("Document No.", Rec."No.");
@@ -341,12 +386,20 @@ page 70119 "MJS Sales Order Campaign API"
         if locationCode <> '' then SalesLine.Validate("Location Code", locationCode);
         SalesLine.Validate(Quantity, quantity);
         if applyUnitPrice then SalesLine.Validate("Unit Price", unitPrice);
-        if discountPercent > 0 then SalesLine.Validate("Line Discount %", discountPercent);
+        // A caller that priced the line also priced its discount: clear a
+        // discount BC found on its own (e.g. under a campaign price the caller
+        // resolved differently) so the line amount matches the approved order.
+        if (discountPercent > 0) or (applyUnitPrice and (SalesLine."Line Discount %" <> 0)) then
+            SalesLine.Validate("Line Discount %", discountPercent);
         SalesLine.Modify(true);
-        LastLineNo:=NextLineNo;
+        LastLineNo := NextLineNo;
         actionContext.SetObjectType(ObjectType::Page);
         actionContext.SetObjectId(Page::"MJS Sales Order Campaign API");
         actionContext.AddEntityKey(Rec.FieldNo(SystemId), Rec.SystemId);
         actionContext.SetResultCode(WebServiceActionResultCode::Updated);
     end;
+
+    var
+        MissingDealsFieldErr: Label 'Sales Line field "GMPI Deals" was not found. Install the GMPI extension that adds Deals to the Sales Order lines.';
+        DealsTooLongErr: Label 'Deal "%1" is longer than the %2 characters the Deals field allows.', Comment = '%1 = deal, %2 = field length';
 }

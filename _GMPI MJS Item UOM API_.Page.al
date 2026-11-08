@@ -49,15 +49,22 @@ page 70118 "MJS Item UOM API"
                 {
                     Caption = 'Qty. per Unit of Measure';
                 }
+                field(salesAppApplicable; Rec."MJS Sales App Applicable")
+                {
+                    Caption = 'Sales App Applicable';
+                }
             }
         }
     }
     trigger OnAfterGetRecord()
     begin
-        if UnitOfMeasure.Get(Rec.Code)then UnitOfMeasureDescription:=UnitOfMeasure.Description
+        if UnitOfMeasure.Get(Rec.Code) then
+            UnitOfMeasureDescription := UnitOfMeasure.Description
         else
-            UnitOfMeasureDescription:='';
+            UnitOfMeasureDescription := '';
     end;
-    var UnitOfMeasure: Record "Unit of Measure";
-    UnitOfMeasureDescription: Text[100];
+
+    var
+        UnitOfMeasure: Record "Unit of Measure";
+        UnitOfMeasureDescription: Text[100];
 }
