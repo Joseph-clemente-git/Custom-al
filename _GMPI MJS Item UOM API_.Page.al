@@ -49,10 +49,6 @@ page 70118 "MJS Item UOM API"
                 {
                     Caption = 'Qty. per Unit of Measure';
                 }
-                field(salesAppApplicable; Rec."MJS Sales App Applicable")
-                {
-                    Caption = 'Sales App Applicable';
-                }
             }
         }
     }
