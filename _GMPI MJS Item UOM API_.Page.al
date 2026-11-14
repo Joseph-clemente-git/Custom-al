@@ -49,18 +49,54 @@ page 70118 "MJS Item UOM API"
                 {
                     Caption = 'Qty. per Unit of Measure';
                 }
+                // GMPI's "Allow in Sales Application" checkbox (Item Units of
+                // Measure page), read by name so this app keeps no hard
+                // dependency on GMPI. Ticked = the UOM stays on the Sales Order
+                // line as entered; unticked = converted to the Sales UOM.
+                field(salesAppApplicable; SalesAppApplicable)
+                {
+                    Caption = 'Sales App Applicable';
+                }
             }
         }
     }
+    trigger OnOpenPage()
+    var
+        UomField: Record Field;
+    begin
+        // Resolved once per request rather than once per returned row.
+        UomField.SetRange(TableNo, Database::"Item Unit of Measure");
+        UomField.SetRange(FieldName, 'Allow in Sales Application');
+        UomField.SetRange(Enabled, true);
+        if UomField.FindFirst() then
+            AllowInSalesAppFieldNo := UomField."No."
+        else
+            AllowInSalesAppFieldNo := 0;
+    end;
+
     trigger OnAfterGetRecord()
+    var
+        UomRef: RecordRef;
     begin
         if UnitOfMeasure.Get(Rec.Code) then
             UnitOfMeasureDescription := UnitOfMeasure.Description
         else
             UnitOfMeasureDescription := '';
+        // Without GMPI's field every UOM stays as entered (no conversion).
+        SalesAppApplicable := true;
+        // Re-read the row in full: an API page loads only the fields bound to
+        // its controls, so GMPI's field is not loaded on Rec itself.
+        if AllowInSalesAppFieldNo <> 0 then begin
+            UomRef.Open(Database::"Item Unit of Measure");
+            if UomRef.GetBySystemId(Rec.SystemId) then
+                SalesAppApplicable := UomRef.Field(AllowInSalesAppFieldNo).Value;
+            UomRef.Close();
+        end;
     end;
 
     var
         UnitOfMeasure: Record "Unit of Measure";
         UnitOfMeasureDescription: Text[100];
+        SalesAppApplicable: Boolean;
+        AllowInSalesAppFieldNo: Integer;
 }
