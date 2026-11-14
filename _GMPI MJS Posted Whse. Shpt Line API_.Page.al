@@ -114,6 +114,10 @@ page 70148 "MJS Posted Whse. Shpt Line API"
                 {
                     Caption = 'Whse. Shipment No.';
                 }
+                field(packageNo; Rec."MJS Package No.")
+                {
+                    Caption = 'Shipping Package No.';
+                }
             }
         }
     }

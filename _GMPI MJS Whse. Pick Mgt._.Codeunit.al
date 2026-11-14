@@ -8,6 +8,12 @@ codeunit 70132 "MJS Whse. Pick Mgt."
     LotTotalErr: Label 'The lots of item %1 total %2, but %3 is being registered.', Comment = '%1 = item no., %2 = lot total, %3 = quantity';
     DuplicateLotErr: Label 'Lot %1 is listed more than once for item %2.', Comment = '%1 = lot no., %2 = item no.';
     LotsOverOutstandingErr: Label 'The lots of item %1 exceed its outstanding quantity on the pick.', Comment = '%1 = item no.';
+    PackageUsedErr: Label 'Shipping package %1 is already used on %2 %3. Use a new package label.', Comment = '%1 = package no., %2 = document type, %3 = document no.';
+    PackageTotalErr: Label 'The shipping packages of item %1 total %2, but %3 is being registered.', Comment = '%1 = item no., %2 = package total, %3 = quantity';
+    ItemOnePackageErr: Label 'Item %1 must go in one shipping package. Several items can share a package, but one item can''t be split across packages.', Comment = '%1 = item no.';
+    ItemPackedErr: Label 'Item %1 is already packed in shipping package %2 on this shipment.', Comment = '%1 = item no., %2 = package no.';
+    VariantRequiredErr: Label 'Item %1 (%2) needs a Variant Code, but its pick line has none. The item has variants and "Variant Mandatory if Exists" is on. To fix: on the item card set "Variant Mandatory if Exists" to No, or put the variant on the sales order line and create the pick again.', Comment = '%1 = item no., %2 = item description';
+    DuplicatePackageErr: Label 'Shipping package %1 is listed more than once for item %2.', Comment = '%1 = package no., %2 = item no.';
     // API sessions run in UTC, so Today/Time would stamp UTC times on the
     // documents. Convert to warehouse local time instead. The Philippines
     // is UTC+8 with no DST — Windows id "Singapore Standard Time".
@@ -72,7 +78,8 @@ codeunit 70132 "MJS Whse. Pick Mgt."
     /// Replicates Register Pick on the Warehouse Pick document belonging to
     /// the shipment. LinesJson is an array like
     /// [{"itemNo":"TI-000001","quantity":1}] (optional binCode and lots
-    /// [{"lotNo","expirationDate","quantity"}] per item) — the given quantity is applied
+    /// [{"lotNo","expirationDate","quantity"}] and packages [{"packageNo","quantity"}]
+    /// or a single packageNo per item) — the given quantity is applied
     /// as Qty. to Handle per item (distributed across that item's Take and
     /// Place lines); items not mentioned register 0. An empty LinesJson
     /// registers everything outstanding (BC's Autofill Qty. to Handle).
@@ -84,7 +91,7 @@ codeunit 70132 "MJS Whse. Pick Mgt."
         FindPick(WhseShipmentNo, PickHeader);
         if LinesJson = '' then AutofillQtyToHandle(PickHeader)
         else
-            ApplyQuantities(PickHeader, LinesJson);
+            ApplyQuantities(PickHeader, WhseShipmentNo, LinesJson);
         RegisterPickDoc(PickHeader);
     end;
     local procedure FindPick(WhseShipmentNo: Code[20]; var PickHeader: Record "Warehouse Activity Header")
@@ -105,7 +112,7 @@ codeunit 70132 "MJS Whse. Pick Mgt."
         WhseActivityLine.SetRange("No.", PickHeader."No.");
         WhseActivityLine.AutofillQtyToHandle(WhseActivityLine);
     end;
-    local procedure ApplyQuantities(var PickHeader: Record "Warehouse Activity Header"; LinesJson: Text)
+    local procedure ApplyQuantities(var PickHeader: Record "Warehouse Activity Header"; WhseShipmentNo: Code[20]; LinesJson: Text)
     var
         WhseActivityLine: Record "Warehouse Activity Line";
         Items: JsonArray;
@@ -138,6 +145,8 @@ codeunit 70132 "MJS Whse. Pick Mgt."
             // Optional lots chosen by the checker: a lot-tracked item can't
             // register with a blank Lot No.
             if ItemObject.Get('lots', ValueToken)then if ValueToken.IsArray()then AssignLots(PickHeader, ItemNo, ValueToken.AsArray(), Qty);
+            // Optional shipping packages the checker packed the item in.
+            SetPackages(WhseShipmentNo, ItemNo, ItemObject, Qty);
             DistributeQty(PickHeader, ItemNo, "Warehouse Action Type"::Take, Qty);
             DistributeQty(PickHeader, ItemNo, "Warehouse Action Type"::Place, Qty);
         end;
@@ -147,6 +156,166 @@ codeunit 70132 "MJS Whse. Pick Mgt."
     begin
         if Obj.Get(KeyName, Token)then if Token.IsValue() and not Token.AsValue().IsNull()then exit(Token.AsValue().AsText());
         exit('');
+    end;
+    /// <summary>
+    /// Custom rule: records the shipping package the item went into —
+    /// "packages" [{"packageNo","quantity"}] with one entry for the registered
+    /// Qty, or a single "packageNo". An item goes in one package; several
+    /// items can share one; a package belongs to one shipment only (open or
+    /// posted). Partial registrations add up. Runs inside the Register Pick
+    /// call, so a refusal rolls it all back.
+    /// </summary>
+    // The API user may lack a permission set for this table; grant it here only.
+    [InherentPermissions(PermissionObjectType::TableData, Database::"MJS Shipment Package", 'RIM')]
+    local procedure SetPackages(WhseShipmentNo: Code[20]; ItemNo: Code[20]; ItemObject: JsonObject; Qty: Decimal)
+    var
+        ShipmentPackage: Record "MJS Shipment Package";
+        WhseShptLine: Record "Warehouse Shipment Line";
+        Packages: JsonArray;
+        PackageToken: JsonToken;
+        PackageObject: JsonObject;
+        ValueToken: JsonToken;
+        PackageNos: List of[Code[50]];
+        PackageQtys: List of[Decimal];
+        PackageNo: Code[50];
+        PackageQty: Decimal;
+        Total: Decimal;
+        i: Integer;
+    begin
+        if Qty <= 0 then exit;
+        if ItemObject.Get('packages', ValueToken)then if ValueToken.IsArray()then Packages:=ValueToken.AsArray();
+        foreach PackageToken in Packages do begin
+            PackageObject:=PackageToken.AsObject();
+            PackageNo:=CopyStr(GetJsonText(PackageObject, 'packageNo'), 1, MaxStrLen(PackageNo));
+            if(PackageNo = '') or not PackageObject.Get('quantity', ValueToken)then Error(InvalidJsonErr);
+            PackageQty:=ValueToken.AsValue().AsDecimal();
+            if PackageQty <= 0 then Error(InvalidJsonErr);
+            if PackageNos.Contains(PackageNo)then Error(DuplicatePackageErr, PackageNo, ItemNo);
+            PackageNos.Add(PackageNo);
+            PackageQtys.Add(PackageQty);
+            Total+=PackageQty;
+        end;
+        if PackageNos.Count() = 0 then begin
+            PackageNo:=CopyStr(GetJsonText(ItemObject, 'packageNo'), 1, MaxStrLen(PackageNo));
+            if PackageNo = '' then exit;
+            PackageNos.Add(PackageNo);
+            PackageQtys.Add(Qty);
+            Total:=Qty;
+        end;
+        if Total <> Qty then Error(PackageTotalErr, ItemNo, Total, Qty);
+        // Custom rule (GMPI 26.1.0.48): an item goes whole into one package
+        // (several items can share one), also over partial registrations.
+        if PackageNos.Count() > 1 then Error(ItemOnePackageErr, ItemNo);
+        ShipmentPackage.SetRange("Whse. Shipment No.", WhseShipmentNo);
+        ShipmentPackage.SetRange("Item No.", ItemNo);
+        ShipmentPackage.SetFilter("Package No.", '<>%1', PackageNos.Get(1));
+        if ShipmentPackage.FindFirst()then Error(ItemPackedErr, ItemNo, ShipmentPackage."Package No.");
+        ShipmentPackage.Reset();
+        WhseShptLine.SetRange("No.", WhseShipmentNo);
+        WhseShptLine.SetRange("Item No.", ItemNo);
+        WhseShptLine.SetFilter("MJS Package No.", '<>%1&<>%2', '', PackageNos.Get(1));
+        if WhseShptLine.FindFirst()then Error(ItemPackedErr, ItemNo, WhseShptLine."MJS Package No.");
+        // The one package holds everything picked of the item: what earlier
+        // registrations picked plus this one (not +=, so a stale row from a
+        // failed attempt can't double it).
+        WhseShptLine.SetRange("MJS Package No.");
+        WhseShptLine.CalcSums("Qty. Picked");
+        PackageQtys.Set(1, PackageQtys.Get(1) + WhseShptLine."Qty. Picked");
+        WhseShptLine.Reset();
+        for i:=1 to PackageNos.Count()do begin
+            PackageNo:=PackageNos.Get(i);
+            CheckPackageFree(WhseShipmentNo, PackageNo);
+            if ShipmentPackage.Get(WhseShipmentNo, ItemNo, PackageNo)then begin
+                ShipmentPackage.Quantity:=PackageQtys.Get(i);
+                ShipmentPackage.Modify();
+            end
+            else
+            begin
+                ShipmentPackage.Init();
+                ShipmentPackage."Whse. Shipment No.":=WhseShipmentNo;
+                ShipmentPackage."Item No.":=ItemNo;
+                ShipmentPackage."Package No.":=PackageNo;
+                ShipmentPackage.Quantity:=PackageQtys.Get(i);
+                ShipmentPackage.Insert();
+            end;
+        end;
+        // The line's own field (shown on the BC pages) names the package only
+        // while the whole item is in one box; the split is in this table.
+        ShipmentPackage.Reset();
+        ShipmentPackage.SetRange("Whse. Shipment No.", WhseShipmentNo);
+        ShipmentPackage.SetRange("Item No.", ItemNo);
+        PackageNo:='';
+        if ShipmentPackage.Count() = 1 then if ShipmentPackage.FindFirst()then PackageNo:=ShipmentPackage."Package No.";
+        WhseShptLine.SetRange("No.", WhseShipmentNo);
+        WhseShptLine.SetRange("Item No.", ItemNo);
+        WhseShptLine.ModifyAll("MJS Package No.", PackageNo);
+    end;
+    [InherentPermissions(PermissionObjectType::TableData, Database::"MJS Shipment Package", 'R')]
+    local procedure CheckPackageFree(WhseShipmentNo: Code[20]; PackageNo: Code[50])
+    var
+        ShipmentPackage: Record "MJS Shipment Package";
+        WhseShptLine: Record "Warehouse Shipment Line";
+        PostedWhseShptLine: Record "Posted Whse. Shipment Line";
+    begin
+        ShipmentPackage.SetCurrentKey("Package No.");
+        ShipmentPackage.SetRange("Package No.", PackageNo);
+        ShipmentPackage.SetFilter("Whse. Shipment No.", '<>%1', WhseShipmentNo);
+        if ShipmentPackage.FindFirst()then Error(PackageUsedErr, PackageNo, 'warehouse shipment', ShipmentPackage."Whse. Shipment No.");
+        // Packages registered before GMPI 26.1.0.45 exist only on the lines.
+        WhseShptLine.SetCurrentKey("MJS Package No.");
+        WhseShptLine.SetRange("MJS Package No.", PackageNo);
+        WhseShptLine.SetFilter("No.", '<>%1', WhseShipmentNo);
+        if WhseShptLine.FindFirst()then Error(PackageUsedErr, PackageNo, 'warehouse shipment', WhseShptLine."No.");
+        PostedWhseShptLine.SetCurrentKey("MJS Package No.");
+        PostedWhseShptLine.SetRange("MJS Package No.", PackageNo);
+        PostedWhseShptLine.SetFilter("Whse. Shipment No.", '<>%1', WhseShipmentNo);
+        if PostedWhseShptLine.FindFirst()then Error(PackageUsedErr, PackageNo, 'posted warehouse shipment', PostedWhseShptLine."No.");
+    end;
+    /// <summary>
+    /// The shipping packages of an item on a warehouse shipment as JSON
+    /// [{"packageNo","quantity"}], in the pick line's unit of measure.
+    /// </summary>
+    /// <summary>
+    /// The shipping packages of an item on a warehouse shipment for the BC
+    /// pages: "P1" for one box, "P1 (10), P2 (2)" when split. Falls back to
+    /// LinePackageNo (packages registered before GMPI 26.1.0.45).
+    /// </summary>
+    [InherentPermissions(PermissionObjectType::TableData, Database::"MJS Shipment Package", 'R')]
+    procedure PackagesText(WhseShipmentNo: Code[20]; ItemNo: Code[20]; LinePackageNo: Code[50]): Text
+    var
+        ShipmentPackage: Record "MJS Shipment Package";
+        Result: Text;
+    begin
+        ShipmentPackage.SetRange("Whse. Shipment No.", WhseShipmentNo);
+        ShipmentPackage.SetRange("Item No.", ItemNo);
+        if ShipmentPackage.Count() = 0 then exit(LinePackageNo);
+        if ShipmentPackage.Count() = 1 then begin
+            ShipmentPackage.FindFirst();
+            exit(ShipmentPackage."Package No.");
+        end;
+        ShipmentPackage.FindSet();
+        repeat
+            if Result <> '' then Result += ', ';
+            Result += StrSubstNo('%1 (%2)', ShipmentPackage."Package No.", Format(ShipmentPackage.Quantity));
+        until ShipmentPackage.Next() = 0;
+        exit(Result);
+    end;
+    [InherentPermissions(PermissionObjectType::TableData, Database::"MJS Shipment Package", 'R')]
+    procedure PackagesJson(WhseShipmentNo: Code[20]; ItemNo: Code[20]): Text var
+        ShipmentPackage: Record "MJS Shipment Package";
+        Packages: JsonArray;
+        PackageObject: JsonObject;
+        Result: Text;
+    begin
+        ShipmentPackage.SetRange("Whse. Shipment No.", WhseShipmentNo);
+        ShipmentPackage.SetRange("Item No.", ItemNo);
+        if ShipmentPackage.FindSet()then repeat Clear(PackageObject);
+                PackageObject.Add('packageNo', ShipmentPackage."Package No.");
+                PackageObject.Add('quantity', ShipmentPackage.Quantity);
+                Packages.Add(PackageObject);
+            until ShipmentPackage.Next() = 0;
+        Packages.WriteTo(Result);
+        exit(Result);
     end;
     local procedure SetTakeBinIfBlank(var PickHeader: Record "Warehouse Activity Header"; ItemNo: Code[20]; BinCode: Code[20])
     var
@@ -374,8 +543,27 @@ codeunit 70132 "MJS Whse. Pick Mgt."
         WhseActivityLine.SetRange("No.", PickHeader."No.");
         WhseActivityLine.SetFilter("Qty. to Handle", '>0');
         if not WhseActivityLine.FindFirst()then Error(NothingToRegisterErr, PickHeader."No.");
+        CheckVariants(WhseActivityLine);
         WhseActivityRegister.ShowHideDialog(true);
+        // BC commits early (CheckLines, after the Registering No.); without
+        // this a later refusal would keep our lots, Qty. to Handle and packages.
+        WhseActivityRegister.SetSuppressCommit(true);
         WhseActivityRegister.Run(WhseActivityLine);
+    end;
+    /// <summary>
+    /// Same test BC's Whse. Jnl.-Register Line runs at register
+    /// (Item.IsVariantMandatory), made earlier so the message names the item
+    /// and the fix instead of a blank Warehouse Journal Line.
+    /// </summary>
+    local procedure CheckVariants(var WhseActivityLine: Record "Warehouse Activity Line")
+    var
+        Item: Record Item;
+    begin
+        WhseActivityLine.SetRange("Variant Code", '');
+        if WhseActivityLine.FindSet()then repeat if Item.Get(WhseActivityLine."Item No.")then if Item.IsVariantMandatory()then Error(VariantRequiredErr, Item."No.", Item.Description);
+            until WhseActivityLine.Next() = 0;
+        WhseActivityLine.SetRange("Variant Code");
+        WhseActivityLine.FindFirst();
     end;
     procedure PickExists(WhseShipmentNo: Code[20]): Boolean var
         WhseActivityLine: Record "Warehouse Activity Line";

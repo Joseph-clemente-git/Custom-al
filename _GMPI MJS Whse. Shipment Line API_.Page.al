@@ -99,7 +99,26 @@ page 70138 "MJS Whse. Shipment Line API"
                 {
                     Caption = 'Due Date';
                 }
+                field(packageNo; Rec."MJS Package No.")
+                {
+                    Caption = 'Shipping Package No.';
+                }
+                // GMPI 26.1.0.45: the item's shipping packages with the
+                // quantity in each, as [{"packageNo","quantity"}].
+                field(packagesJson; PackagesJsonText)
+                {
+                    Caption = 'Shipping Packages';
+                }
             }
         }
     }
+    var
+        PackagesJsonText: Text;
+
+    trigger OnAfterGetRecord()
+    var
+        PickMgt: Codeunit "MJS Whse. Pick Mgt.";
+    begin
+        PackagesJsonText := PickMgt.PackagesJson(Rec."No.", Rec."Item No.");
+    end;
 }

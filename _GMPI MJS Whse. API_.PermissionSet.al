@@ -56,6 +56,7 @@ permissionset 70137 "GMPI MJS Whse. API"
         tabledata "Warehouse Shipment Line"=R,
         tabledata "Posted Whse. Shipment Header"=R,
         tabledata "Posted Whse. Shipment Line"=R,
+        tabledata "MJS Shipment Package"=RIMD,
         codeunit "MJS Whse. Pick Mgt."=X,
         codeunit "MJS Whse. Post Mgt."=X,
         codeunit "MJS Whse. Put-away Mgt."=X,
