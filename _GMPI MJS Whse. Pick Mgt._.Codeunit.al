@@ -3,6 +3,7 @@ codeunit 70132 "MJS Whse. Pick Mgt."
     var NoLinesErr: Label 'Warehouse shipment %1 has no lines to pick.', Comment = '%1 = warehouse shipment no.';
     NothingToHandleErr: Label 'No pick was created for warehouse shipment %1 — nothing to handle. Check item availability and bin contents at the location.', Comment = '%1 = warehouse shipment no.';
     NoPickErr: Label 'Warehouse shipment %1 has no open pick to register.', Comment = '%1 = warehouse shipment no.';
+    PickNotOnShipmentErr: Label 'Pick %1 is not an open pick of warehouse shipment %2. It may already be registered.', Comment = '%1 = warehouse pick no., %2 = warehouse shipment no.';
     InvalidJsonErr: Label 'The lines parameter is not valid JSON. Expected an array like [{"itemNo":"...","quantity":1}].';
     NothingToRegisterErr: Label 'Pick %1 has no quantity to register — every Qty. to Handle is 0.', Comment = '%1 = warehouse pick no.';
     LotTotalErr: Label 'The lots of item %1 total %2, but %3 is being registered.', Comment = '%1 = item no., %2 = lot total, %3 = quantity';
@@ -63,7 +64,7 @@ codeunit 70132 "MJS Whse. Pick Mgt."
     var
         PickHeader: Record "Warehouse Activity Header";
     begin
-        FindPick(WhseShipmentNo, PickHeader);
+        FindPick(WhseShipmentNo, '', PickHeader);
         if PickHeader."Assigned User ID" = '' then exit;
         PickHeader."Assignment Date":=DT2Date(LocalNow());
         PickHeader."Assignment Time":=DT2Time(LocalNow());
@@ -83,26 +84,45 @@ codeunit 70132 "MJS Whse. Pick Mgt."
     /// as Qty. to Handle per item (distributed across that item's Take and
     /// Place lines); items not mentioned register 0. An empty LinesJson
     /// registers everything outstanding (BC's Autofill Qty. to Handle).
+    /// A shipment can have several open picks: an optional "pickNo" on the
+    /// first line object names the one to register; without it the first
+    /// open pick is used.
     /// </summary>
     procedure RegisterPick(WhseShipmentNo: Code[20]; LinesJson: Text)
     var
         PickHeader: Record "Warehouse Activity Header";
     begin
-        FindPick(WhseShipmentNo, PickHeader);
+        FindPick(WhseShipmentNo, PickNoFromLines(LinesJson), PickHeader);
         if LinesJson = '' then AutofillQtyToHandle(PickHeader)
         else
             ApplyQuantities(PickHeader, WhseShipmentNo, LinesJson);
         RegisterPickDoc(PickHeader);
     end;
-    local procedure FindPick(WhseShipmentNo: Code[20]; var PickHeader: Record "Warehouse Activity Header")
+    local procedure FindPick(WhseShipmentNo: Code[20]; PickNo: Code[20]; var PickHeader: Record "Warehouse Activity Header")
     var
         WhseActivityLine: Record "Warehouse Activity Line";
     begin
         WhseActivityLine.SetRange("Activity Type", WhseActivityLine."Activity Type"::Pick);
         WhseActivityLine.SetRange("Whse. Document Type", WhseActivityLine."Whse. Document Type"::Shipment);
         WhseActivityLine.SetRange("Whse. Document No.", WhseShipmentNo);
-        if not WhseActivityLine.FindFirst()then Error(NoPickErr, WhseShipmentNo);
+        if PickNo <> '' then WhseActivityLine.SetRange("No.", PickNo);
+        if not WhseActivityLine.FindFirst()then begin
+            if PickNo <> '' then Error(PickNotOnShipmentErr, PickNo, WhseShipmentNo);
+            Error(NoPickErr, WhseShipmentNo);
+        end;
         PickHeader.Get(PickHeader.Type::Pick, WhseActivityLine."No.");
+    end;
+    local procedure PickNoFromLines(LinesJson: Text): Code[20]
+    var
+        Items: JsonArray;
+        ItemToken: JsonToken;
+    begin
+        // Invalid JSON is reported by ApplyQuantities; here it only means no pick No.
+        if LinesJson = '' then exit('');
+        if not Items.ReadFrom(LinesJson)then exit('');
+        if not Items.Get(0, ItemToken)then exit('');
+        if not ItemToken.IsObject()then exit('');
+        exit(CopyStr(GetJsonText(ItemToken.AsObject(), 'pickNo'), 1, 20));
     end;
     local procedure AutofillQtyToHandle(var PickHeader: Record "Warehouse Activity Header")
     var

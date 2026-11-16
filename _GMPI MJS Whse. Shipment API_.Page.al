@@ -83,7 +83,8 @@ page 70131 "MJS Whse. Shipment API"
     /// Body: { "linesJson": "[{\"itemNo\":\"TI-000001\",\"quantity\":1}]" }
     /// Registers the shipment's open Warehouse Pick with the given Qty. to
     /// Handle per item — the same as Register Pick on the pick document. An
-    /// empty linesJson registers everything outstanding.
+    /// empty linesJson registers everything outstanding. An optional "pickNo"
+    /// on the first line names which open pick to register.
     /// </summary>
     [ServiceEnabled]
     procedure registerPick(var actionContext: WebServiceActionContext; linesJson: Text)
