@@ -2,15 +2,13 @@ codeunit 70136 "MJS Whse. Receipt Lot Mgt."
 {
     // Lot assignment on inbound — the API equivalent of Item Tracking Lines on
     // a Warehouse Receipt line (which BC opens on the line's source document).
-    // Custom rule: Purchase Order receiving only uses Lot Nos. (batches) that
-    // already exist as Lot No. Information cards — it never creates a lot,
-    // like BC's own Lot Info. Inbound Must Exist, but for every item.
+    // Purchase Order receiving accepts any typed Lot No. (batch): a new lot
+    // needs no Lot No. Information card. An existing card must not be Blocked.
     var InvalidJsonErr: Label 'The lots parameter is not valid JSON. Expected an array like [{"lotNo":"L001","expirationDate":"2027-12-31","quantity":1}].';
     UnsupportedSourceErr: Label 'Lots can only be created here on purchase order receipt lines — %1 %2 takes its lots from its source document.', Comment = '%1 = source document, %2 = source no.';
     BlankLotErr: Label 'Every lot needs a Lot No. and a quantity above 0.';
     DuplicateLotErr: Label 'Lot %1 is listed more than once.', Comment = '%1 = lot no.';
     ExpirationRequiredErr: Label 'Item %1 requires an expiration date for lot %2.', Comment = '%1 = item no., %2 = lot no.';
-    LotNotFoundErr: Label 'Lot %1 does not exist for item %2. Only Lot Nos. in Business Central (Lot No. Information) can be received.', Comment = '%1 = lot no., %2 = item no.';
     LotBlockedErr: Label 'Lot %1 of item %2 is blocked.', Comment = '%1 = lot no., %2 = item no.';
     ExpirationMismatchErr: Label 'Lot %1 already expires on %2 in Business Central; it cannot be received with %3.', Comment = '%1 = lot no., %2 = existing expiration date, %3 = entered expiration date';
     TooMuchErr: Label 'The lots total %1, more than the %2 outstanding on receipt line %3.', Comment = '%1 = lots total, %2 = qty. outstanding, %3 = line no.';
@@ -19,9 +17,9 @@ codeunit 70136 "MJS Whse. Receipt Lot Mgt."
     /// ([{"lotNo","expirationDate" (yyyy-mm-dd, required),"quantity"}], in the
     /// line's unit of measure) — the same Reservation Entries (status
     /// Surplus) BC's Item Tracking Lines page writes for the source line,
-    /// created through the standard Create Reserv. Entry codeunit. Every lot
-    /// must already exist (Lot No. Information, not Blocked) and keep the
-    /// expiry already posted for it. An empty array clears the lots.
+    /// created through the standard Create Reserv. Entry codeunit. A lot can be
+    /// new; an existing lot must not be Blocked and keeps the expiry already
+    /// posted for it. An empty array clears the lots.
     /// </summary>
     procedure AssignLots(WhseRcptHeader: Record "Warehouse Receipt Header"; LineNo: Integer; LotsJson: Text)
     var
@@ -54,8 +52,7 @@ codeunit 70136 "MJS Whse. Receipt Lot Mgt."
             SeenLots.Add(LotNo);
             // Purchase Order receiving always records the lot's expiry.
             if ExpirationDate = 0D then Error(ExpirationRequiredErr, Item."No.", LotNo);
-            if not LotNoInfo.Get(WhseRcptLine."Item No.", WhseRcptLine."Variant Code", LotNo)then Error(LotNotFoundErr, LotNo, Item."No.");
-            if LotNoInfo.Blocked then Error(LotBlockedErr, LotNo, Item."No.");
+            if LotNoInfo.Get(WhseRcptLine."Item No.", WhseRcptLine."Variant Code", LotNo)then if LotNoInfo.Blocked then Error(LotBlockedErr, LotNo, Item."No.");
             ExistingExpirationDate:=GetPostedExpirationDate(WhseRcptLine, LotNo);
             if(ExistingExpirationDate <> 0D) and (ExistingExpirationDate <> ExpirationDate)then Error(ExpirationMismatchErr, LotNo, ExistingExpirationDate, ExpirationDate);
             Total+=Qty;
