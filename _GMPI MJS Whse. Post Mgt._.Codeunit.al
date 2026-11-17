@@ -36,9 +36,18 @@ codeunit 70133 "MJS Whse. Post Mgt."
     var
         WhseRcptLine: Record "Warehouse Receipt Line";
         WhsePostReceipt: Codeunit "Whse.-Post Receipt";
+        WhseSetup: Record "Warehouse Setup";
     begin
         WhseRcptLine.SetRange("No.", WhseRcptHeader."No.");
         if not WhseRcptLine.FindFirst()then Error(NoReceiptLinesErr, WhseRcptHeader."No.");
+        // BC's OnInsert copies Posted Whse. Receipt Nos. only when that series has Default Nos.; posting then needs it.
+        WhseRcptHeader.Get(WhseRcptHeader."No.");
+        if WhseRcptHeader."Receiving No. Series" = '' then begin
+            WhseSetup.Get();
+            WhseSetup.TestField("Posted Whse. Receipt Nos.");
+            WhseRcptHeader."Receiving No. Series":=WhseSetup."Posted Whse. Receipt Nos.";
+            WhseRcptHeader.Modify();
+        end;
         WhsePostReceipt.Run(WhseRcptLine);
     end;
 }
