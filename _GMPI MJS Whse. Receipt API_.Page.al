@@ -83,6 +83,23 @@ page 70129 "MJS Whse. Receipt API"
         actionContext.AddEntityKey(Rec.FieldNo(SystemId), Rec.SystemId);
         actionContext.SetResultCode(WebServiceActionResultCode::Updated);
     end;
+    /// <summary>
+    /// Bound action: POST .../warehouseReceipts({systemId})/Microsoft.NAV.setQtyToReceive
+    /// Body: { "lineNo": 10000, "qtyToReceive": 20 }
+    /// Sets Qty. to Receive on one receipt line for a partial receipt. See
+    /// MJS Whse. Post Mgt. SetQtyToReceive.
+    /// </summary>
+    [ServiceEnabled]
+    procedure setQtyToReceive(var actionContext: WebServiceActionContext; lineNo: Integer; qtyToReceive: Decimal)
+    var
+        PostMgt: Codeunit "MJS Whse. Post Mgt.";
+    begin
+        PostMgt.SetQtyToReceive(Rec, lineNo, qtyToReceive);
+        actionContext.SetObjectType(ObjectType::Page);
+        actionContext.SetObjectId(Page::"MJS Whse. Receipt API");
+        actionContext.AddEntityKey(Rec.FieldNo(SystemId), Rec.SystemId);
+        actionContext.SetResultCode(WebServiceActionResultCode::Updated);
+    end;
     [ServiceEnabled]
     procedure postReceipt(var actionContext: WebServiceActionContext)
     var

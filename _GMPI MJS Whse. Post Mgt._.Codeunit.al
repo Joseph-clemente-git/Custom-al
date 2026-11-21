@@ -50,4 +50,20 @@ codeunit 70133 "MJS Whse. Post Mgt."
         end;
         WhsePostReceipt.Run(WhseRcptLine);
     end;
+    /// <summary>
+    /// Sets Qty. to Receive on one Warehouse Receipt line (in the line's unit
+    /// of measure), for a partial receipt. Validate runs BC's own rules: the
+    /// quantity can't be negative or above Qty. Outstanding. Post Receipt then
+    /// receives this quantity, and the rest stays open on the receipt. On a
+    /// lot-tracked line the lots must total the same quantity, or BC refuses
+    /// to post.
+    /// </summary>
+    procedure SetQtyToReceive(WhseRcptHeader: Record "Warehouse Receipt Header"; LineNo: Integer; QtyToReceive: Decimal)
+    var
+        WhseRcptLine: Record "Warehouse Receipt Line";
+    begin
+        WhseRcptLine.Get(WhseRcptHeader."No.", LineNo);
+        WhseRcptLine.Validate("Qty. to Receive", QtyToReceive);
+        WhseRcptLine.Modify(true);
+    end;
 }
